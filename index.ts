@@ -460,27 +460,14 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("summary:clear", {
-		description: "Reset summary to first line of first user message",
+		description: "Clear the session summary/name",
 		handler: async (_args, ctx) => {
-			const branch = ctx.sessionManager.getBranch();
-			let firstLine = "";
-			for (const entry of branch) {
-				if (entry.type === "message" && (entry as any).message?.role === "user") {
-					const text = renderContent((entry as any).message.content).trim();
-					if (text) {
-						firstLine = text.split("\n")[0].slice(0, 200);
-						break;
-					}
-				}
-			}
 			resetState();
-			lastSummary = firstLine;
-			if (firstLine) {
-				pi.setSessionName(firstLine);
-			}
+			lastSummary = "";
+			pi.setSessionName("");
 			latestCtx = ctx;
 			updateWidget(ctx);
-			ctx.ui.notify(firstLine ? `Summary reset to: ${firstLine}` : "Summary cleared", "info");
+			ctx.ui.notify("Summary cleared", "info");
 		},
 	});
 
