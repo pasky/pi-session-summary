@@ -318,7 +318,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		if (shouldResummarize) {
 			prompt = [
 				"Summarize this coding session in a SINGLE SHOT line (max ~120 chars).",
-				"Highlight: headline what the user is working on, current progress, and immediate next step.",
+				"Highlight: headline what the user is working on, current progress, and immediate next step (if outlined).",
 				"Be specific and concrete, not vague.",
 				"",
 				"<conversation>",
@@ -338,7 +338,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 				"Update the summary ONLY if there has been material progress or a change in direction.",
 				"If nothing material changed, return the previous summary exactly.",
 				"Summarize this coding session in a SINGLE SHOT line (max ~120 chars).",
-				"Highlight: headline what the user is working on, current progress, and immediate next step.",
+				"Highlight: headline what the user is working on, current progress, and immediate next step (if outlined).",
 				"Be specific and concrete, not vague.",
 			].join("\n");
 		}
