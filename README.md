@@ -27,6 +27,15 @@ Or add to `settings.json`:
 }
 ```
 
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `/summary:settings` | Creates the global settings JSON file (`~/.pi/agent/session-summary.json`) with defaults if it doesn't exist, and shows instructions to edit it. Run `/reload` after editing. |
+| `/summary:update` | Force an immediate summary update, bypassing the debounce timer. |
+| `/summary:clear` | Reset the summary to the first line of the first user message, clearing all accumulated state. |
+| `/summary:cost` | Show the summary model name, number of LLM calls, token usage, and cost breakdown for the current session. |
+
 ## Configuration
 
 Create `~/.pi/agent/session-summary.json` (global) or `.pi/session-summary.json` (project override). Project settings are merged on top of global settings, which are merged on top of defaults. Config is reloaded on session start/switch and `/reload`.

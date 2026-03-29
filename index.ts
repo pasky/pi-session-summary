@@ -23,8 +23,8 @@
  * appears as the oneliner in /resume's session selector.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { complete } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { getAgentDir } from "@mariozechner/pi-coding-agent";
@@ -163,6 +163,9 @@ function getCompactionSummary(entries: SessionEntry[]): string | undefined {
 export default function sessionSummaryExtension(pi: ExtensionAPI) {
 	// -- State ------------------------------------------------------------
 	let config = { ...DEFAULTS };  // loaded from session-summary.json
+	let totalCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+	let totalTokens = { input: 0, output: 0 };
+	let llmCallCount = 0;
 	let lastSummary = "";          // last successful LLM-generated summary
 	let lastSummaryConvTokens = 0; // token count of conversation when last summary was made
 	let turnsSinceSummary = 0;     // agent_end calls since last summary update
@@ -209,6 +212,9 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		lastSummaryTime = 0;
 		pendingLLMCall = false;
 		lastError = "";
+		totalCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+		totalTokens = { input: 0, output: 0 };
+		llmCallCount = 0;
 	}
 
 	// -- Widget rendering -------------------------------------------------
@@ -347,6 +353,19 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			sessionId: ctx.sessionManager.getSessionId(),
 		} as any)
 			.then((response) => {
+			// Track usage/cost
+			if (response.usage) {
+				totalTokens.input += response.usage.input;
+				totalTokens.output += response.usage.output;
+				if (response.usage.cost) {
+					totalCost.input += response.usage.cost.input;
+					totalCost.output += response.usage.cost.output;
+					totalCost.cacheRead += response.usage.cost.cacheRead;
+					totalCost.cacheWrite += response.usage.cost.cacheWrite;
+					totalCost.total += response.usage.cost.total;
+				}
+			}
+			llmCallCount++;
 				// Handle provider-level errors (e.g. codex "invalid_workspace_selected")
 				if (response.stopReason === "error") {
 					const errMsg = response.errorMessage || "unknown provider error";
@@ -393,6 +412,80 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 				if (latestCtx) updateWidget(latestCtx);
 			});
 	}
+
+	// -- Commands ---------------------------------------------------------
+
+	pi.registerCommand("summary:settings", {
+		description: "Create/show session-summary settings file",
+		handler: async (_args, ctx) => {
+			const globalPath = join(getAgentDir(), "session-summary.json");
+			if (!existsSync(globalPath)) {
+				mkdirSync(dirname(globalPath), { recursive: true });
+				writeFileSync(globalPath, JSON.stringify(DEFAULTS, null, 2) + "\n");
+				ctx.ui.notify(`Created ${globalPath}`, "success");
+			} else {
+				ctx.ui.notify(`Settings file already exists: ${globalPath}`, "info");
+			}
+			ctx.ui.notify(`Edit: ${globalPath} — then /reload to apply`, "info");
+		},
+	});
+
+	pi.registerCommand("summary:update", {
+		description: "Force-update the session summary now",
+		handler: async (_args, ctx) => {
+			if (pendingLLMCall) {
+				ctx.ui.notify("Summary update already in progress", "info");
+				return;
+			}
+			latestCtx = ctx;
+			// Force by resetting debounce timer
+			lastSummaryTime = 0;
+			ctx.ui.notify("Generating summary...", "info");
+			await generateSummary(ctx);
+		},
+	});
+
+	pi.registerCommand("summary:clear", {
+		description: "Reset summary to first line of first user message",
+		handler: async (_args, ctx) => {
+			const branch = ctx.sessionManager.getBranch();
+			let firstLine = "";
+			for (const entry of branch) {
+				if (entry.type === "message" && (entry as any).message?.role === "user") {
+					const text = renderContent((entry as any).message.content).trim();
+					if (text) {
+						firstLine = text.split("\n")[0].slice(0, 200);
+						break;
+					}
+				}
+			}
+			resetState();
+			lastSummary = firstLine;
+			if (firstLine) {
+				pi.setSessionName(firstLine);
+			}
+			latestCtx = ctx;
+			updateWidget(ctx);
+			ctx.ui.notify(firstLine ? `Summary reset to: ${firstLine}` : "Summary cleared", "info");
+		},
+	});
+
+	pi.registerCommand("summary:cost", {
+		description: "Show summary model and its cost this session",
+		handler: async (_args, ctx) => {
+			const model = `${config.provider}/${config.model}`;
+			const costStr = totalCost.total > 0 ? `$${totalCost.total.toFixed(4)}` : "$0";
+			const lines = [
+				`Model: ${model}`,
+				`LLM calls: ${llmCallCount}`,
+				`Tokens — in: ${totalTokens.input}, out: ${totalTokens.output}`,
+				`Cost — total: ${costStr} (in: $${totalCost.input.toFixed(4)}, out: $${totalCost.output.toFixed(4)}, cache-r: $${totalCost.cacheRead.toFixed(4)}, cache-w: $${totalCost.cacheWrite.toFixed(4)})`,
+			];
+			for (const line of lines) {
+				ctx.ui.notify(line, "info");
+			}
+		},
+	});
 
 	// -- Event handlers ---------------------------------------------------
 
