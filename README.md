@@ -9,14 +9,14 @@ Model is auto-detected from available cheap models (gpt-5.4-nano, gpt-5.4-mini, 
 ## Install
 
 ```bash
-pi install /path/to/pi-session-summary
+pi install pi-session-summary
 ```
 
 Or add to `settings.json`:
 
 ```json
 {
-  "packages": ["/path/to/pi-session-summary"]
+  "packages": ["pi-session-summary"]
 }
 ```
 
