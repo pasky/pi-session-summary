@@ -186,31 +186,11 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 
 	// -- Persist + session name helpers -----------------------------------
 
-	/** Persist summary to session and update session name for /resume. */
-	function persistSummary() {
-		if (lastSummary) {
-			pi.appendEntry("session-summary", {
-				summary: lastSummary,
-				convTokens: lastSummaryConvTokens,
-			});
-			pi.setSessionName(lastSummary);
-		}
-	}
-
-	/** Restore summary state from session entries. */
-	function restoreFromEntries(ctx: ExtensionContext) {
-		for (const entry of ctx.sessionManager.getEntries()) {
-			if ((entry as any).type === "custom" && (entry as any).customType === "session-summary") {
-				const data = (entry as any).data;
-				if (data?.summary) {
-					lastSummary = data.summary;
-					lastSummaryConvTokens = data.convTokens ?? 0;
-				}
-			}
-		}
-		// Restore session name from persisted summary
-		if (lastSummary) {
-			pi.setSessionName(lastSummary);
+	/** Restore summary from the persisted session name. */
+	function restoreFromSessionName() {
+		const name = pi.getSessionName();
+		if (name) {
+			lastSummary = name;
 		}
 	}
 
@@ -555,14 +535,8 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			lastError = "No summary model available (tried: " + AUTO_DETECT_MODELS.join(", ") + ")";
 		}
 
-		// Check for persisted summary
-		restoreFromEntries(ctx);
+		restoreFromSessionName();
 		updateWidget(ctx);
-	});
-
-	// Persist summary before switching away (covers /new and /resume)
-	pi.on("session_before_switch", async (_event, _ctx) => {
-		persistSummary();
 	});
 
 	pi.on("session_switch", async (_event, ctx) => {
@@ -576,8 +550,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			lastError = "No summary model available (tried: " + AUTO_DETECT_MODELS.join(", ") + ")";
 		}
 
-		// Restore from new session (empty for /new, populated for /resume)
-		restoreFromEntries(ctx);
+		restoreFromSessionName();
 		updateWidget(ctx);
 	});
 
@@ -598,8 +571,5 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		generateSummary(ctx);
 	});
 
-	// Persist summary on shutdown so it survives restarts
-	pi.on("session_shutdown", async (_event, _ctx) => {
-		persistSummary();
-	});
+
 }
