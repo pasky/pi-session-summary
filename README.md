@@ -1,17 +1,8 @@
 # pi-session-summary
 
-A pi extension that shows a one-line LLM-generated session summary below the editor.
+A pi extension that dynamically maintains a one-line LLM-generated session summary shown in the status and /resume list of session.
 
-## Features
-
-- **Trigger**: `agent_end` event, debounced (default: every 120 seconds)
-- **Model**: Configurable, defaults to `openai-codex/gpt-5.4-mini`
-- **Hybrid display**: Shows `[compaction summary | last LLM summary] + N new turns since` between updates
-- **Incremental updates**: Asks LLM to update previous summary only if material progress occurred
-- **Full re-summarize**: Every ~40k tokens of new conversation, re-summarizes from scratch
-- **Compact input**: Includes user+assistant text, skips tool I/O (shows only `[tool call: edit]` / `[tool result: 423 bytes]`)
-- **Persistence**: Saves summary on shutdown, restores on session start/switch
-- **Non-blocking**: LLM call runs asynchronously in background
+Model is configurable, defaults to an available cheap OpenAI/Claude model.
 
 ## Install
 
