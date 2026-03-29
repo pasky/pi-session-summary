@@ -1,8 +1,10 @@
 # pi-session-summary
 
-A pi extension that dynamically maintains a one-line LLM-generated session summary shown in the status and /resume list of session.
+A pi extension that dynamically maintains a one-line LLM-generated session summary, set as the session name so it appears in pi's status bar and `/resume` session list.
 
-Model is configurable, defaults to an available cheap OpenAI/Claude model.
+Optionally, an explicit belowEditor widget can show additional context (staleness, compaction info). The widget is off by default since pi already displays the session name.
+
+Model is auto-detected from available cheap models (gpt-5.4-nano, gpt-5.4-mini, gemini-3-flash, claude-4-5-haiku), or can be configured explicitly.
 
 ## Install
 
@@ -39,14 +41,16 @@ All fields are optional — only specify what you want to override:
   "model": "gpt-5.4-mini",
   "debounceSeconds": 120,
   "maxTokens": 300,
-  "resummarizeTokenThreshold": 40000
+  "resummarizeTokenThreshold": 40000,
+  "showWidget": false
 }
 ```
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `provider` | `"openai-codex"` | Model provider |
-| `model` | `"gpt-5.4-mini"` | Model ID |
+| `provider` | *(auto-detect)* | Model provider |
+| `model` | *(auto-detect)* | Model ID |
 | `debounceSeconds` | `120` | Min seconds between LLM calls |
 | `maxTokens` | `300` | Max tokens for LLM response |
 | `resummarizeTokenThreshold` | `40000` | Token threshold for full re-summarize vs incremental update |
+| `showWidget` | `false` | Show a belowEditor widget with summary, staleness, and compaction info |

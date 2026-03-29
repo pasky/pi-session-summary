@@ -1,31 +1,3 @@
-/**
- * pi-session-summary -- belowEditor widget showing a one-line LLM-generated session summary.
- *
- * Triggers on agent_end, debounced (default 120s).  Uses a separately configured
- * model so the main conversation model is untouched.
- *
- * When no provider/model is configured, auto-detects the first available model
- * from: gpt-5.4-nano, gpt-5.4-mini, gemini-3-flash, claude-4-5-haiku.
- *
- * Configuration via ~/.pi/agent/session-summary.json (global) or
- * .pi/session-summary.json (project override, merged on top):
- *
- *   {
- *     "provider": "openai-codex",
- *     "model": "gpt-5.4-mini",
- *     "debounceSeconds": 120,
- *     "maxTokens": 300,
- *     "resummarizeTokenThreshold": 40000
- *   }
- *
- * Between LLM updates the widget shows a hybrid line:
- *   "[compaction | last summary] + N new turns since"
- * so the user always has recency context.
- *
- * The summary is also set as the session name (pi.setSessionName) so it
- * appears as the oneliner in /resume's session selector.
- */
-
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { complete } from "@mariozechner/pi-ai";
@@ -40,12 +12,14 @@ interface SummaryConfig {
 	debounceSeconds: number;
 	maxTokens: number;
 	resummarizeTokenThreshold: number;
+	showWidget: boolean;
 }
 
 const DEFAULTS: SummaryConfig = {
 	debounceSeconds: 120,
 	maxTokens: 300,
 	resummarizeTokenThreshold: 40_000,
+	showWidget: false,
 };
 
 /** Models to try in order when no explicit model is configured. */
@@ -235,6 +209,10 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 
 	function updateWidget(ctx: ExtensionContext) {
 		if (!ctx.hasUI) return;
+		if (!config.showWidget) {
+			ctx.ui.setWidget("session-summary", undefined);
+			return;
+		}
 
 		// Build the display line
 		const parts: string[] = [];
