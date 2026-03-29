@@ -2,8 +2,6 @@
 
 A pi extension that dynamically maintains a one-line LLM-generated session summary, set as the session name so it appears in pi's status bar and `/resume` session list.
 
-Optionally, an explicit belowEditor widget can show additional context (staleness, compaction info). The widget is off by default since pi already displays the session name.
-
 Model is auto-detected from available cheap models (gpt-5.4-nano, gpt-5.4-mini, gemini-3-flash, claude-4-5-haiku), or can be configured explicitly.
 
 ## Install

@@ -16,7 +16,7 @@ interface SummaryConfig {
 }
 
 const DEFAULTS: SummaryConfig = {
-	debounceSeconds: 120,
+	debounceSeconds: 60,
 	maxTokens: 300,
 	resummarizeTokenThreshold: 40_000,
 	showWidget: false,
@@ -317,8 +317,8 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		let prompt: string;
 		if (shouldResummarize) {
 			prompt = [
-				"Summarize this coding session in a SINGLE line (max ~200 chars).",
-				"Include: what the user is working on, current progress, and immediate next step.",
+				"Summarize this coding session in a SINGLE SHOT line (max ~120 chars).",
+				"Highlight: headline what the user is working on, current progress, and immediate next step.",
 				"Be specific and concrete, not vague.",
 				"",
 				"<conversation>",
@@ -337,7 +337,9 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 				"",
 				"Update the summary ONLY if there has been material progress or a change in direction.",
 				"If nothing material changed, return the previous summary exactly.",
-				"Output a SINGLE line (max ~200 chars): what the user is working on, current progress, next step.",
+				"Summarize this coding session in a SINGLE SHOT line (max ~120 chars).",
+				"Highlight: headline what the user is working on, current progress, and immediate next step.",
+				"Be specific and concrete, not vague.",
 			].join("\n");
 		}
 
