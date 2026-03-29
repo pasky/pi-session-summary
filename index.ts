@@ -13,6 +13,7 @@ interface SummaryConfig {
 	maxTokens: number;
 	resummarizeTokenThreshold: number;
 	showWidget: boolean;
+	verbose: boolean;
 }
 
 const DEFAULTS: SummaryConfig = {
@@ -20,6 +21,7 @@ const DEFAULTS: SummaryConfig = {
 	maxTokens: 300,
 	resummarizeTokenThreshold: 40_000,
 	showWidget: false,
+	verbose: false,
 };
 
 /** Models to try in order when no explicit model is configured. */
@@ -399,6 +401,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 					.replace(/\n+/g, " ");
 
 				if (text) {
+					const changed = text !== lastSummary;
 					lastSummary = text;
 					lastSummaryConvTokens = convTokens;
 					turnsSinceSummary = 0;
@@ -406,6 +409,11 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 					lastError = "";
 					// Update session name so it shows in /resume
 					pi.setSessionName(lastSummary);
+					// Verbose notification
+					if (config.verbose && changed && latestCtx?.hasUI) {
+						const mode = shouldResummarize ? "resummarize" : "incremental";
+						latestCtx.ui.notify(`[summary:${mode}] ${lastSummary}`, "info");
+					}
 				}
 			})
 			.catch((err) => {
