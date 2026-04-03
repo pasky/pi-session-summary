@@ -509,21 +509,6 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		updateWidget(ctx);
 	});
 
-	pi.on("session_switch", async (_event, ctx) => {
-		config = loadConfig(ctx.cwd);
-		resetState();
-		latestCtx = ctx;
-
-		// Resolve model early so waiting message shows model name
-		const resolved = resolveModel(ctx);
-		if (!resolved) {
-			lastError = "No summary model available (tried: " + AUTO_DETECT_MODELS.join(", ") + ")";
-		}
-
-		restoreFromSessionName();
-		updateWidget(ctx);
-	});
-
 	pi.on("agent_end", async (_event, ctx) => {
 		latestCtx = ctx;
 		turnsSinceSummary++;
