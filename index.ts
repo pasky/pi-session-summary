@@ -159,6 +159,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 	let pendingLLMCall = false;    // is an LLM call in flight?
 	let lastError = "";            // last error (code only)
 	let latestCtx: ExtensionContext | undefined; // most recent ctx for widget updates
+	let sessionGeneration = 0;     // increment on session start/shutdown; ignores async work from stale session instances
 
 	// -- Persist + session name helpers -----------------------------------
 
@@ -299,16 +300,18 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			return;
 		}
 
+		const generation = sessionGeneration;
+		const branch = ctx.sessionManager.getBranch();
+		const conversation = buildConversation(branch);
+		const convTokens = estimateTokens(conversation);
+		const sessionId = ctx.sessionManager.getSessionId();
 		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+		if (generation !== sessionGeneration) return;
 		if (!auth?.ok || !auth.apiKey) {
 			lastError = "NO_API_KEY";
 			updateWidget(ctx);
 			return;
 		}
-
-		const branch = ctx.sessionManager.getBranch();
-		const conversation = buildConversation(branch);
-		const convTokens = estimateTokens(conversation);
 
 		if (!conversation.trim()) return;
 
@@ -359,9 +362,10 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			apiKey: auth.apiKey,
 			headers: auth.headers,
 			maxTokens: config.maxTokens,
-			sessionId: ctx.sessionManager.getSessionId(),
+			sessionId,
 		} as any)
 			.then((response) => {
+			if (generation !== sessionGeneration) return;
 			// Track usage/cost
 			if (response.usage) {
 				totalTokens.input += response.usage.input;
@@ -417,6 +421,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 				}
 			})
 			.catch((err) => {
+				if (generation !== sessionGeneration) return;
 				const msg = err?.message || String(err);
 				// err.name is usually just "Error" -- useless; prefer code/status/message
 				const code = err?.code || err?.status || msg.slice(0, 80);
@@ -424,6 +429,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			})
 			.finally(() => {
 				pendingLLMCall = false;
+				if (generation !== sessionGeneration) return;
 				if (latestCtx) updateWidget(latestCtx);
 			});
 	}
@@ -493,7 +499,13 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 
 	// -- Event handlers ---------------------------------------------------
 
+	pi.on("session_shutdown", async () => {
+		sessionGeneration++;
+		latestCtx = undefined;
+	});
+
 	pi.on("session_start", async (_event, ctx) => {
+		sessionGeneration++;
 		// Reload config (picks up changes on /reload)
 		config = loadConfig(ctx.cwd);
 		resetState();
