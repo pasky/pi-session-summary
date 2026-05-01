@@ -9,7 +9,7 @@ Model is auto-detected from available cheap models (gpt-5.4-nano, gpt-5.4-mini, 
 ## Install
 
 ```bash
-pi install pi-session-summary
+pi install npm:pi-session-summary
 ```
 
 Or add to `settings.json`:
