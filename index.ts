@@ -359,7 +359,6 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			apiKey: auth.apiKey,
 			headers: auth.headers,
 			maxTokens: config.maxTokens,
-			sessionId: ctx.sessionManager.getSessionId(),
 		} as any)
 			.then((response) => {
 			// Track usage/cost
