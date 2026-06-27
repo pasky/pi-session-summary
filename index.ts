@@ -446,7 +446,16 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			})
 			.finally(() => {
 				pendingLLMCall = false;
-				if (latestCtx && !isCtxStale(latestCtx)) updateWidget(latestCtx);
+				// Guard + try/catch: isCtxStale() can race with a teardown happening
+				// mid-updateWidget, and this fire-and-forget chain has no further
+				// .catch() to absorb a throw into an unhandled rejection.
+				if (latestCtx && !isCtxStale(latestCtx)) {
+					try {
+						updateWidget(latestCtx);
+					} catch {
+						// ctx went stale mid-update -- nothing to render into
+					}
+				}
 			});
 	}
 
