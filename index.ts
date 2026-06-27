@@ -160,6 +160,20 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 	let lastError = "";            // last error (code only)
 	let latestCtx: ExtensionContext | undefined; // most recent ctx for widget updates
 
+	/**
+	 * A captured ctx becomes stale after a session replacement/reload (e.g. when an
+	 * async LLM call completes after a non-interactive run has been torn down).
+	 * Touching any getter on a stale ctx throws, so probe one cheaply.
+	 */
+	function isCtxStale(ctx: ExtensionContext): boolean {
+		try {
+			void ctx.hasUI;
+			return false;
+		} catch {
+			return true;
+		}
+	}
+
 	// -- Persist + session name helpers -----------------------------------
 
 	/** Restore summary from the persisted session name. */
@@ -406,12 +420,21 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 					turnsSinceSummary = 0;
 					lastSummaryTime = Date.now();
 					lastError = "";
-					// Update session name so it shows in /resume
-					pi.setSessionName(lastSummary);
-					// Verbose notification
-					if (config.verbose && changed && latestCtx?.hasUI) {
-						const mode = shouldResummarize ? "resummarize" : "incremental";
-						latestCtx.ui.notify(`[summary:${mode}] ${lastSummary}`, "info");
+					// The captured pi/ctx may be stale if the session was replaced while
+					// this async call was in flight (e.g. non-interactive runs). Skip the
+					// side effects in that case -- the state above is already updated.
+					if (!latestCtx || !isCtxStale(latestCtx)) {
+						try {
+							// Update session name so it shows in /resume
+							pi.setSessionName(lastSummary);
+							// Verbose notification
+							if (config.verbose && changed && latestCtx?.hasUI) {
+								const mode = shouldResummarize ? "resummarize" : "incremental";
+								latestCtx.ui.notify(`[summary:${mode}] ${lastSummary}`, "info");
+							}
+						} catch {
+							// ctx/pi became stale between the check and use -- ignore
+						}
 					}
 				}
 			})
@@ -423,7 +446,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			})
 			.finally(() => {
 				pendingLLMCall = false;
-				if (latestCtx) updateWidget(latestCtx);
+				if (latestCtx && !isCtxStale(latestCtx)) updateWidget(latestCtx);
 			});
 	}
 
