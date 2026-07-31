@@ -178,9 +178,13 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 
 	/** Restore summary from the persisted session name. */
 	function restoreFromSessionName() {
-		const name = pi.getSessionName();
-		if (name) {
-			lastSummary = name;
+		try {
+			const name = pi.getSessionName();
+			if (name) {
+				lastSummary = name;
+			}
+		} catch {
+			// pi runtime invalidated (session replaced mid-start) -- keep current state
 		}
 	}
 
@@ -224,6 +228,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 	// -- Widget rendering -------------------------------------------------
 
 	function updateWidget(ctx: ExtensionContext) {
+		if (isCtxStale(ctx)) return;
 		if (!ctx.hasUI) return;
 		if (!config.showWidget) {
 			ctx.ui.setWidget("session-summary", undefined);
@@ -297,7 +302,20 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 	// -- LLM summary generation -------------------------------------------
 
 	async function generateSummary(ctx: ExtensionContext) {
+		try {
+			await generateSummaryInner(ctx);
+		} catch (err) {
+			// A session replacement/reload can invalidate ctx between our awaits;
+			// every ctx getter then throws. Nothing to render into -- just stop.
+			if (isCtxStale(ctx)) return;
+			const msg = (err as any)?.message || String(err);
+			lastError = msg.slice(0, 80);
+		}
+	}
+
+	async function generateSummaryInner(ctx: ExtensionContext) {
 		if (pendingLLMCall) return;
+		if (isCtxStale(ctx)) return;
 
 		const resolved = resolveModel(ctx);
 		if (!resolved) {
@@ -314,6 +332,8 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		}
 
 		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+		// The await above can span a session replacement -- re-check before touching ctx.
+		if (isCtxStale(ctx)) return;
 		if (!auth?.ok || !auth.apiKey) {
 			lastError = "NO_API_KEY";
 			updateWidget(ctx);
@@ -553,8 +573,9 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			return;
 		}
 
-		// Generate summary asynchronously (non-blocking)
-		generateSummary(ctx);
+		// Generate summary asynchronously (non-blocking); generateSummary swallows
+		// its own errors, but keep a catch so nothing can become an unhandled rejection.
+		generateSummary(ctx).catch(() => {});
 	});
 
 
