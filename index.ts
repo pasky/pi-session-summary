@@ -308,8 +308,12 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			// A session replacement/reload can invalidate ctx between our awaits;
 			// every ctx getter then throws. Nothing to render into -- just stop.
 			if (isCtxStale(ctx)) return;
+			// Genuine failure: surface it in the widget and let the caller see it
+			// (/summary:update awaits us, so it reaches the runner's diagnostics).
 			const msg = (err as any)?.message || String(err);
 			lastError = msg.slice(0, 80);
+			updateWidget(ctx);
+			throw err;
 		}
 	}
 
@@ -573,8 +577,9 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			return;
 		}
 
-		// Generate summary asynchronously (non-blocking); generateSummary swallows
-		// its own errors, but keep a catch so nothing can become an unhandled rejection.
+		// Generate summary asynchronously (non-blocking). Errors are already recorded
+		// in lastError/widget by generateSummary; absorb them here so a background
+		// failure never becomes an unhandled rejection.
 		generateSummary(ctx).catch(() => {});
 	});
 
