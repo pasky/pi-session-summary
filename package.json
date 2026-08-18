@@ -7,6 +7,9 @@
   ],
   "license": "MIT",
   "author": "Petr Baudis",
+  "scripts": {
+    "test": "node --test"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/pasky/pi-session-summary.git"
@@ -27,5 +30,9 @@
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "^0.80.0",
     "@earendil-works/pi-tui": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.80.5",
+    "@earendil-works/pi-coding-agent": "0.80.5"
   }
 }
