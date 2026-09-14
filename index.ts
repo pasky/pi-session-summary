@@ -25,8 +25,12 @@ const DEFAULTS: SummaryConfig = {
 };
 
 /** Models to try in order when no explicit model is configured.
- *  Matched by exact id first, then by `vendor/<id>` suffix (openrouter-style ids). */
+ *  Entries are either `provider/id` (exact provider) or a bare `id`, matched by exact id
+ *  first, then by `vendor/<id>` suffix (openrouter-style ids). Bare ids never match
+ *  providers in AUTO_DETECT_SKIP_PROVIDERS. */
 const AUTO_DETECT_MODELS = [
+	// ChatGPT-subscription Codex: no per-token cost, and luna is the smallest model it serves.
+	"openai-codex/gpt-5.6-luna",
 	"gpt-5.4-nano",
 	"gpt-5.4-mini",
 	"gemini-3-flash",
@@ -219,11 +223,16 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		}
 
 		// Auto-detect: find the first available model from the priority list
-		const available = ctx.modelRegistry.getAvailable()
-			.filter((m) => !AUTO_DETECT_SKIP_PROVIDERS.has(m.provider));
-		for (const candidateId of AUTO_DETECT_MODELS) {
-			const match = available.find((m) => m.id === candidateId)
-				?? available.find((m) => m.id.endsWith(`/${candidateId}`));
+		const all = ctx.modelRegistry.getAvailable();
+		const generic = all.filter((m) => !AUTO_DETECT_SKIP_PROVIDERS.has(m.provider));
+		for (const candidate of AUTO_DETECT_MODELS) {
+			const slash = candidate.indexOf("/");
+			const provider = slash >= 0 ? candidate.slice(0, slash) : undefined;
+			const candidateId = slash >= 0 ? candidate.slice(slash + 1) : candidate;
+			const match = provider
+				? all.find((m) => m.provider === provider && m.id === candidateId)
+				: generic.find((m) => m.id === candidateId)
+					?? generic.find((m) => m.id.endsWith(`/${candidateId}`));
 			if (match) {
 				resolvedModelName = `${match.provider}/${match.id}`;
 				return { provider: match.provider, model: match.id };
