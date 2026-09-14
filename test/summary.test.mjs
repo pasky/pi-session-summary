@@ -17,11 +17,13 @@ const response = (text = 'Fixed Copilot routing') => ({ stopReason: 'stop', cont
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(r => resolve = r); return { promise, resolve }; };
 
-function harness(file, { entries = history, complete = async () => response(), models = [model], name = '' } = {}) {
+function harness(file, { entries = history, complete = async () => response(), models = [model], name = '', crlf = false } = {}) {
   const calls = [], widgets = [], notifications = [], statuses = [], titles = [], persisted = [], names = [], logs = [];
   const events = {}, commands = {};
   const config = { showWidget: true, debounceSeconds: 30 };
-  let source = readFileSync(file, 'utf8').replace(/^import .*;\n/gm, '').replace(/export default function(?: \w+)?\s*\(/, 'function extensionFactory(');
+  let source = readFileSync(file, 'utf8');
+  if (crlf) source = source.replace(/\r?\n/g, '\r\n');
+  source = source.replace(/^import .*;\r?\n/gm, '').replace(/export default function(?: \w+)?\s*\(/, 'function extensionFactory(');
   source = stripTypeScriptTypes(source) + '\nglobalThis.factory = extensionFactory;';
   const sandbox = {
     existsSync: () => true, readFileSync: () => JSON.stringify(config),
@@ -70,6 +72,11 @@ test('summary: existing conversation does not pretend to await first message', a
   assert.match(h.widget(), /summary:update/);
   assert.doesNotMatch(h.widget(), /Waiting for first message/);
   assert.equal(h.calls.length, 0);
+});
+
+test('summary: factory harness handles Windows CRLF checkouts', async () => {
+  const h = harness(summaryFile, { crlf: true }); await h.start(); await h.update(); await flush();
+  assert.equal(h.names.at(-1), 'Fixed Copilot routing');
 });
 
 test('summary: empty session explains reply-end trigger', async () => {
