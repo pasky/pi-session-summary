@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { complete } from "@earendil-works/pi-ai";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
@@ -157,6 +157,8 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 	let turnsSinceSummary = 0;     // agent_end calls since last summary update
 	let lastSummaryTime = 0;       // Date.now() of last summary completion
 	let pendingLLMCall = false;    // is an LLM call in flight?
+	let requestGeneration = 0;
+	let requestController: AbortController | undefined;
 	let lastError = "";            // last error (code only)
 	let latestCtx: ExtensionContext | undefined; // most recent ctx for widget updates
 
@@ -190,6 +192,9 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 
 	/** Reset all in-memory state to blank. */
 	function resetState() {
+		requestGeneration++;
+		requestController?.abort();
+		requestController = undefined;
 		lastSummary = "";
 		lastSummaryConvTokens = 0;
 		turnsSinceSummary = 0;
@@ -259,19 +264,14 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			}
 		}
 
-		if (parts.length === 0 && turnsSinceSummary === 0) {
-			// Nothing to show yet — display waiting message with model info
-			if (resolvedModelName) {
-				ctx.ui.setWidget("session-summary", [`Waiting for first message (will use ${resolvedModelName} to summarize)`], { placement: "belowEditor" });
-			} else if (lastError) {
-				ctx.ui.setWidget("session-summary", [`[session-summary] ${lastError}`], { placement: "belowEditor" });
-			} else {
-				ctx.ui.setWidget("session-summary", undefined);
-			}
-			return;
-		}
-
 		let line = parts.join("");
+		if (!line && turnsSinceSummary === 0 && !lastError && !pendingLLMCall) {
+			const hasMessages = branch.some((entry) => entry.type === "message"
+				&& (entry.message.role === "user" || entry.message.role === "assistant"));
+			line = hasMessages
+				? "Summary not generated yet — /summary:update or finish a reply"
+				: `Waiting for first reply to finish (${resolvedModelName || "no model"})`;
+		}
 
 		// Staleness indicators
 		if (turnsSinceSummary > 0) {
@@ -285,17 +285,17 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			}
 		}
 
-		// Append error code if any
+		if (pendingLLMCall) {
+			line = lastSummary ? `Updating summary... ${line}` : `Generating summary... (${resolvedModelName})`;
+		}
+		// Errors take priority, including before the first successful summary.
 		if (lastError) {
-			line = `${line} [err: ${lastError}]`;
+			line = `[summary error: ${lastError}]${line ? ` ${line}` : ""}`;
 		}
 
-		// Truncate to terminal width to prevent wrapping
+		// Provider errors may contain newlines; truncate by display width (CJK-safe).
 		const cols = process.stdout.columns || 120;
-		if (line.length > cols - 2) {
-			line = line.slice(0, cols - 5) + "...";
-		}
-
+		line = truncateToWidth(line.replace(/\s+/g, " ").trim(), Math.max(1, cols - 2));
 		ctx.ui.setWidget("session-summary", [line], { placement: "belowEditor" });
 	}
 
@@ -335,20 +335,15 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			return;
 		}
 
-		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-		// The await above can span a session replacement -- re-check before touching ctx.
-		if (isCtxStale(ctx)) return;
-		if (!auth?.ok || !auth.apiKey) {
-			lastError = "NO_API_KEY";
-			updateWidget(ctx);
-			return;
-		}
-
 		const branch = ctx.sessionManager.getBranch();
 		const conversation = buildConversation(branch);
 		const convTokens = estimateTokens(conversation);
 
-		if (!conversation.trim()) return;
+		if (!conversation.trim()) {
+			lastError = "No conversation text to summarize";
+			updateWidget(ctx);
+			return;
+		}
 
 		// Decide: update previous summary or re-summarize from scratch
 		const tokensSinceLastSummary = convTokens - lastSummaryConvTokens;
@@ -384,9 +379,19 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		}
 
 		pendingLLMCall = true;
+		lastError = "";
+		const generation = requestGeneration;
+		requestController = new AbortController();
+		const signal = AbortSignal.any([
+			requestController.signal,
+			AbortSignal.timeout(30_000),
+			...(ctx.signal ? [ctx.signal] : []),
+		]);
+		updateWidget(ctx);
 
-		// Fire-and-forget: non-blocking async LLM call
-		complete(model, {
+		// Let Pi resolve OAuth endpoint, headers and provider-specific options.
+		// Deferring also routes synchronous provider errors through the catch below.
+		return Promise.resolve().then(() => ctx.modelRegistry.complete(model, {
 			systemPrompt: "You are a concise summarizer. Output a single line summary of a coding session.",
 			messages: [{
 				role: "user" as const,
@@ -394,11 +399,12 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 				timestamp: Date.now(),
 			}],
 		}, {
-			apiKey: auth.apiKey,
-			headers: auth.headers,
 			maxTokens: config.maxTokens,
-		} as any)
+			signal,
+			maxRetries: 1,
+		}))
 			.then((response) => {
+			if (generation !== requestGeneration || isCtxStale(ctx)) return;
 			// Track usage/cost
 			if (response.usage) {
 				totalTokens.input += response.usage.input;
@@ -413,7 +419,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 			}
 			llmCallCount++;
 				// Handle provider-level errors (e.g. codex "invalid_workspace_selected")
-				if (response.stopReason === "error") {
+				if (response.stopReason === "error" || response.stopReason === "aborted") {
 					const errMsg = response.errorMessage || "unknown provider error";
 					// Try to extract a short code/message from JSON error responses
 					let code = errMsg;
@@ -437,6 +443,10 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 					// Collapse to single line
 					.replace(/\n+/g, " ");
 
+				if (!text) {
+					lastError = "EMPTY_RESPONSE";
+					return;
+				}
 				if (text) {
 					const changed = text !== lastSummary;
 					lastSummary = text;
@@ -463,13 +473,16 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 				}
 			})
 			.catch((err) => {
+				if (generation !== requestGeneration || isCtxStale(ctx)) return;
 				const msg = err?.message || String(err);
 				// err.name is usually just "Error" -- useless; prefer code/status/message
 				const code = err?.code || err?.status || msg.slice(0, 80);
 				lastError = String(code);
 			})
 			.finally(() => {
+				if (generation !== requestGeneration) return;
 				pendingLLMCall = false;
+				requestController = undefined;
 				// Guard + try/catch: isCtxStale() can race with a teardown happening
 				// mid-updateWidget, and this fire-and-forget chain has no further
 				// .catch() to absorb a throw into an unhandled rejection.
@@ -583,5 +596,8 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		generateSummary(ctx).catch(() => {});
 	});
 
-
+	pi.on("session_shutdown", () => {
+		resetState();
+		latestCtx = undefined;
+	});
 }

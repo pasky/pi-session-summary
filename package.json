@@ -1,6 +1,12 @@
 {
   "name": "pi-session-summary",
   "version": "1.0.2",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "description": "A pi extension that maintains an LLM-generated one-line session summary as the session name",
   "keywords": [
     "pi-package"
@@ -25,7 +31,7 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "^0.80.0",
+    "@earendil-works/pi-coding-agent": "^0.85.1",
     "@earendil-works/pi-tui": "*"
   }
 }
