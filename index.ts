@@ -33,9 +33,14 @@ const AUTO_DETECT_MODELS = [
 	"openai-codex/gpt-5.6-luna",
 	"gpt-5.4-nano",
 	"gpt-5.4-mini",
-	"gemini-3-flash",
-	"claude-haiku-4-5",
+	"gemini-3.1-flash-lite",
+	"gemini-3-flash-preview",
+	"claude-haiku-4-5",   // anthropic id
+	"claude-haiku-4.5",   // openrouter id (anthropic/claude-haiku-4.5)
 ];
+
+/** LLM call deadline; the call is fire-and-forget so a hung request must not pin pendingLLMCall forever. */
+const LLM_TIMEOUT_MS = 60_000;
 
 /** Providers that only serve their own agent models and reject generic small models
  *  (e.g. ChatGPT-OAuth Codex: "The 'gpt-5.4-mini' model is not supported when using Codex"). */
@@ -167,7 +172,8 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 	let lastSummaryTime = 0;       // Date.now() of last summary completion
 	let pendingLLMCall = false;    // is an LLM call in flight?
 	let lastError = "";            // last error (code only)
-	let errorNotified = false;     // has the user been told about lastError this session?
+	let errorNotified = false;     // has the user been told about the current failure streak?
+	const rejectedModels = new Set<string>(); // provider/id that returned a provider error this session
 	let latestCtx: ExtensionContext | undefined; // most recent ctx for widget updates
 
 	/**
@@ -207,6 +213,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		pendingLLMCall = false;
 		lastError = "";
 		errorNotified = false;
+		rejectedModels.clear();
 		resolvedModelName = "";
 		totalCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 		totalTokens = { input: 0, output: 0 };
@@ -223,7 +230,10 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		}
 
 		// Auto-detect: find the first available model from the priority list
-		const all = ctx.modelRegistry.getAvailable();
+		// Models that already failed with a provider error this session are skipped so one
+		// broken/exhausted provider doesn't monopolize every attempt.
+		const all = ctx.modelRegistry.getAvailable()
+			.filter((m) => !rejectedModels.has(`${m.provider}/${m.id}`));
 		const generic = all.filter((m) => !AUTO_DETECT_SKIP_PROVIDERS.has(m.provider));
 		for (const candidate of AUTO_DETECT_MODELS) {
 			const slash = candidate.indexOf("/");
@@ -248,8 +258,8 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 	function updateWidget(ctx: ExtensionContext) {
 		if (isCtxStale(ctx)) return;
 		if (!ctx.hasUI) return;
-		// Surface a failure once per session even with the widget off -- otherwise
-		// a broken model/auth setup silently stops summaries for good.
+		// Surface a failure once per failure streak even with the widget off -- otherwise
+		// a broken model/auth setup silently stops summaries for good. (Reset on success.)
 		if (lastError && !errorNotified) {
 			errorNotified = true;
 			ctx.ui.notify(`[session-summary] ${resolvedModelName || "(no model)"}: ${lastError}`, "warning");
@@ -420,7 +430,12 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		}, {
 			apiKey: auth.apiKey,
 			headers: auth.headers,
+			// Note: the Codex (ChatGPT OAuth) API does not honor maxTokens; the prompt's
+			// "single line" instruction is the effective cap there.
 			maxTokens: config.maxTokens,
+			// Lowest reasoning effort the model supports (clamped per model; no-op for non-reasoning models).
+			reasoning: "minimal",
+			timeoutMs: LLM_TIMEOUT_MS,
 		} as any)
 			.then((response) => {
 			// Track usage/cost
@@ -450,6 +465,8 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 							|| errMsg;
 					} catch {}
 					lastError = String(code);
+					// Only auto-detected models get rejected; an explicitly configured model is the user's call.
+					if (!(config.provider && config.model)) rejectedModels.add(`${model.provider}/${model.id}`);
 					return; // don't update summary
 				}
 
@@ -540,8 +557,9 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 				return;
 			}
 			latestCtx = ctx;
-			// Force by resetting debounce timer
+			// Force by resetting debounce timer; an explicit request should always report its failure
 			lastSummaryTime = 0;
+			errorNotified = false;
 			ctx.ui.notify("Generating summary...", "info");
 			await generateSummary(ctx);
 		},

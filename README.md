@@ -4,7 +4,16 @@ A pi extension that dynamically maintains a one-line LLM-generated session summa
 
 ![Session summaries in pi's status bar and session list](screenshot.png)
 
-Model is auto-detected from available cheap models (gpt-5.4-nano, gpt-5.4-mini, gemini-3-flash, claude-4-5-haiku), or can be configured explicitly.
+Model is auto-detected from available cheap models, in this order:
+
+1. `openai-codex/gpt-5.6-luna` — if you're logged into ChatGPT/Codex: covered by the subscription, no per-token cost
+2. `gpt-5.4-nano`, `gpt-5.4-mini` (direct OpenAI key, or via openrouter)
+3. `gemini-3.1-flash-lite`, `gemini-3-flash-preview`
+4. `claude-haiku-4-5`
+
+Other `openai-codex` models are never auto-selected: the ChatGPT-OAuth backend rejects generic small models such as `gpt-5.4-mini`. If an auto-detected model fails with a provider error, it's skipped for the rest of the session and the next candidate is used (which may be a paid one — pin `provider`/`model` if you want to prevent that). A failure is reported once via a notification, even with the widget off.
+
+Or configure the model explicitly (see below).
 
 ## Install
 
@@ -38,7 +47,7 @@ All fields are optional — only specify what you want to override:
 ```json
 {
   "provider": "openai-codex",
-  "model": "gpt-5.4-mini",
+  "model": "gpt-5.6-luna",
   "debounceSeconds": 60,
   "maxTokens": 300,
   "resummarizeTokenThreshold": 40000,
@@ -52,7 +61,9 @@ All fields are optional — only specify what you want to override:
 | `provider` | *(auto-detect)* | Model provider |
 | `model` | *(auto-detect)* | Model ID |
 | `debounceSeconds` | `60` | Min seconds between LLM calls |
-| `maxTokens` | `300` | Max tokens for LLM response |
+| `maxTokens` | `300` | Max tokens for LLM response (not enforced by the `openai-codex` API; the prompt's single-line instruction is the effective cap there) |
 | `resummarizeTokenThreshold` | `40000` | Token threshold for full re-summarize vs incremental update |
 | `showWidget` | `false` | Show a belowEditor widget with summary, staleness, and compaction info |
 | `verbose` | `false` | Show a notification whenever the summary changes |
+
+> **Upgrading from ≤1.0.2:** if `/summary:settings` previously materialized `"provider": "openai-codex", "model": "gpt-5.4-mini"` into your settings file, that model is no longer accepted by Codex — change it to `gpt-5.6-luna` or remove both keys to re-enable auto-detection.
