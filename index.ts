@@ -24,13 +24,18 @@ const DEFAULTS: SummaryConfig = {
 	verbose: false,
 };
 
-/** Models to try in order when no explicit model is configured. */
+/** Models to try in order when no explicit model is configured.
+ *  Matched by exact id first, then by `vendor/<id>` suffix (openrouter-style ids). */
 const AUTO_DETECT_MODELS = [
 	"gpt-5.4-nano",
 	"gpt-5.4-mini",
 	"gemini-3-flash",
-	"claude-4-5-haiku",
+	"claude-haiku-4-5",
 ];
+
+/** Providers that only serve their own agent models and reject generic small models
+ *  (e.g. ChatGPT-OAuth Codex: "The 'gpt-5.4-mini' model is not supported when using Codex"). */
+const AUTO_DETECT_SKIP_PROVIDERS = new Set(["openai-codex"]);
 
 function loadConfig(cwd: string): SummaryConfig {
 	const globalPath = join(getAgentDir(), "session-summary.json");
@@ -158,6 +163,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 	let lastSummaryTime = 0;       // Date.now() of last summary completion
 	let pendingLLMCall = false;    // is an LLM call in flight?
 	let lastError = "";            // last error (code only)
+	let errorNotified = false;     // has the user been told about lastError this session?
 	let latestCtx: ExtensionContext | undefined; // most recent ctx for widget updates
 
 	/**
@@ -196,6 +202,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		lastSummaryTime = 0;
 		pendingLLMCall = false;
 		lastError = "";
+		errorNotified = false;
 		resolvedModelName = "";
 		totalCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 		totalTokens = { input: 0, output: 0 };
@@ -212,9 +219,11 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 		}
 
 		// Auto-detect: find the first available model from the priority list
-		const available = ctx.modelRegistry.getAvailable();
+		const available = ctx.modelRegistry.getAvailable()
+			.filter((m) => !AUTO_DETECT_SKIP_PROVIDERS.has(m.provider));
 		for (const candidateId of AUTO_DETECT_MODELS) {
-			const match = available.find((m) => m.id === candidateId);
+			const match = available.find((m) => m.id === candidateId)
+				?? available.find((m) => m.id.endsWith(`/${candidateId}`));
 			if (match) {
 				resolvedModelName = `${match.provider}/${match.id}`;
 				return { provider: match.provider, model: match.id };
@@ -230,6 +239,12 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 	function updateWidget(ctx: ExtensionContext) {
 		if (isCtxStale(ctx)) return;
 		if (!ctx.hasUI) return;
+		// Surface a failure once per session even with the widget off -- otherwise
+		// a broken model/auth setup silently stops summaries for good.
+		if (lastError && !errorNotified) {
+			errorNotified = true;
+			ctx.ui.notify(`[session-summary] ${resolvedModelName || "(no model)"}: ${lastError}`, "warning");
+		}
 		if (!config.showWidget) {
 			ctx.ui.setWidget("session-summary", undefined);
 			return;
@@ -444,6 +459,7 @@ export default function sessionSummaryExtension(pi: ExtensionAPI) {
 					turnsSinceSummary = 0;
 					lastSummaryTime = Date.now();
 					lastError = "";
+					errorNotified = false;
 					// The captured pi/ctx may be stale if the session was replaced while
 					// this async call was in flight (e.g. non-interactive runs). Skip the
 					// side effects in that case -- the state above is already updated.
